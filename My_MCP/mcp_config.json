@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "wordpress": {
+            "command": "python",
+            "args": [
+                "e:\\YandexDisk\\MCP\\MCP wordpress\\wordpress-mcp-server\\My_MCP\\mcp_server.py"
+            ],
+            "env": {}
+        }
+    }
+}

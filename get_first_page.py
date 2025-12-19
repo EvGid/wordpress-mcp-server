@@ -10,6 +10,11 @@ from mcp_sse_server import WordPressMCP, WORDPRESS_URL, WORDPRESS_USERNAME, WORD
 
 async def show_first_page():
     mcp = WordPressMCP(WORDPRESS_URL, WORDPRESS_USERNAME, WORDPRESS_PASSWORD)
+    # Force utf-8 for windows console
+    if sys.platform == 'win32':
+        import codecs
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+        
     try:
         print(f"Fetching posts from {WORDPRESS_URL}...\n")
         result = await mcp.get_posts(page=1, per_page=10)
