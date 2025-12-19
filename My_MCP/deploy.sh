@@ -53,7 +53,7 @@ python test_server.py
 echo "Step 9: Creating systemd service..."
 cat > /etc/systemd/system/wordpress-mcp.service <<'EOF'
 [Unit]
-Description=WordPress MCP Server
+Description=WordPress MCP SSE Server
 After=network.target
 
 [Service]
@@ -61,7 +61,8 @@ Type=simple
 User=root
 WorkingDirectory=/opt/wordpress-mcp-server/My_MCP
 Environment=PATH=/opt/wordpress-mcp-server/My_MCP/venv/bin
-ExecStart=/opt/wordpress-mcp-server/My_MCP/venv/bin/python mcp_server.py --http
+# Using --sse for ChatGPT MCP compatibility
+ExecStart=/opt/wordpress-mcp-server/My_MCP/venv/bin/python mcp_server.py --sse
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -75,7 +76,7 @@ EOF
 echo "Step 10: Starting MCP server..."
 systemctl daemon-reload
 systemctl enable wordpress-mcp
-systemctl start wordpress-mcp
+systemctl restart wordpress-mcp
 
 # Step 11: Check status
 echo ""
@@ -86,13 +87,16 @@ systemctl status wordpress-mcp --no-pager
 # Step 12: Install Cloudflare Tunnel
 echo ""
 echo "Step 12: Installing Cloudflare Tunnel..."
-cd /root
-wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-chmod +x cloudflared-linux-amd64
-mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+if [ ! -f "/usr/local/bin/cloudflared" ]; then
+    cd /root
+    wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+    chmod +x cloudflared-linux-amd64
+    mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+fi
 
 # Step 13: Start Cloudflare Tunnel
 echo "Step 13: Starting Cloudflare Tunnel..."
+pkill cloudflared || true
 nohup cloudflared tunnel --url http://localhost:8000 > /root/cloudflared.log 2>&1 &
 sleep 5
 
@@ -102,15 +106,17 @@ echo "=========================================="
 echo "✅ INSTALLATION COMPLETE!"
 echo "=========================================="
 echo ""
-echo "MCP Server is running on port 8000"
+echo "MCP Server is running on port 8000 (SSE Mode)"
 echo ""
 echo "Your HTTPS URL for ChatGPT:"
-grep -o 'https://[^ ]*' /root/cloudflared.log | head -1
+TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | head -1)
+echo "${TUNNEL_URL}/sse"
+echo ""
+echo "IMPORTANT: In ChatGPT, use the URL above (including /sse)"
 echo ""
 echo "Management commands:"
 echo "  Status:  systemctl status wordpress-mcp"
 echo "  Logs:    journalctl -u wordpress-mcp -f"
 echo "  Restart: systemctl restart wordpress-mcp"
-echo ""
-echo "Cloudflare Tunnel log: /root/cloudflared.log"
 echo "=========================================="
+
