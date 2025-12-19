@@ -1,27 +1,99 @@
 # WordPress MCP Server
 
-MCP (Model Context Protocol) сервер для управления WordPress постами через ChatGPT.
+Comprehensive WordPress management через Model Context Protocol (MCP).
 
-## Что это?
+## 🎯 Что это?
 
-Позволяет ChatGPT создавать, обновлять, получать и удалять посты на вашем WordPress сайте.
+MCP сервер для полного управления WordPress сайтом через ChatGPT и Antigravity. Построен на официальном Python SDK (FastMCP).
 
-## Быстрый старт
+## 📦 Две версии
 
-### 1. Скопируйте файлы на сервер
+### 1. **My_MCP** (Рекомендуется) - Новая версия на FastMCP
+- ✅ Официальный MCP Python SDK
+- ✅ 21 инструмент для управления WordPress
+- ✅ Поддержка Antigravity (stdio)
+- ✅ Поддержка ChatGPT (HTTP/SSE)
+- ✅ Современная архитектура
+- ✅ Полная документация
 
+**Быстрый старт:**
 ```bash
-# На вашем Ubuntu сервере создайте директорию
-mkdir -p ~/wordpress-mcp-project
-cd ~/wordpress-mcp-project
-
-# Скопируйте туда эти файлы:
-# - mcp_sse_server.py
-# - requirements.txt
-# - install.sh
+cd My_MCP
+python -m pip install -r requirements.txt
+python test_server.py  # Проверка подключения
+python mcp_server.py   # Запуск для Antigravity
 ```
 
-### 2. Настройте WordPress credentials
+[Подробная документация →](My_MCP/README.md)
+
+### 2. **Legacy** - Оригинальная версия (SSE)
+- Старая реализация с FastAPI
+- Для ChatGPT через SSE
+- Cloudflare Tunnel для HTTPS
+
+## 🚀 Быстрый старт (My_MCP)
+
+### 1. Установка
+
+```bash
+git clone https://github.com/EvGid/wordpress-mcp-server.git
+cd wordpress-mcp-server/My_MCP
+python -m pip install -r requirements.txt
+```
+
+### 2. Настройка
+
+Откройте `mcp_server.py` и проверьте настройки:
+
+```python
+WORDPRESS_URL = "https://your-site.com"
+WORDPRESS_USERNAME = "your-username"
+WORDPRESS_PASSWORD = "your-app-password"
+```
+
+### 3. Тестирование
+
+```bash
+python test_server.py
+```
+
+### 4. Использование
+
+**В Antigravity:**
+- Следуйте инструкции в [ANTIGRAVITY_SETUP.md](My_MCP/ANTIGRAVITY_SETUP.md)
+
+**В ChatGPT:**
+```bash
+python mcp_server.py --http
+cloudflared tunnel --url http://localhost:8000
+```
+
+## 📚 Документация
+
+- [My_MCP README](My_MCP/README.md) - Полная документация новой версии
+- [Antigravity Setup](My_MCP/ANTIGRAVITY_SETUP.md) - Подключение к Antigravity
+- [Legacy README](#legacy-version) - Документация старой версии
+
+## 🛠️ Доступные инструменты (My_MCP)
+
+### Посты (7 инструментов)
+- `get_post`, `create_post`, `update_post`, `delete_post`
+- `get_posts`, `publish_post`, `unpublish_post`
+
+### Страницы (4 инструмента)
+- `get_page`, `create_page`, `update_page`, `delete_page`
+
+### Категории и теги (4 инструмента)
+- `get_categories`, `create_category`, `get_tags`, `create_tag`
+
+### Медиа, пользователи, комментарии (6 инструментов)
+- `get_media`, `get_users`, `get_comments`, `approve_comment`, `delete_comment`, `get_site_info`
+
+---
+
+# Legacy Version
+
+## Настройка WordPress credentials (Legacy)
 
 **Вариант 1 (Рекомендуется): Использование .env файла**
 
@@ -48,6 +120,7 @@ WORDPRESS_PASSWORD=your-application-password
 WORDPRESS_URL = "https://your-wordpress-site.com/"
 WORDPRESS_USERNAME = "your-username"
 WORDPRESS_PASSWORD = "your-password"
+```
 ```
 
 **Важно:** Используйте Application Password в WordPress (не основной пароль):
