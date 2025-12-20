@@ -26,6 +26,21 @@ logging.basicConfig(
     force=True
 )
 logger = logging.getLogger(__name__)
+ 
+# ==================== TRANSPORT SECURITY PATCH ====================
+# The MCP SDK (mcp-python-sdk) includes DNS rebinding protection that rejects 
+# Cloudflare Tunnel hostnames by default (returning 421 Misdirected Request).
+# We monkey-patch validate_host to allow all hosts for this tunnel setup.
+try:
+    import mcp.server.transport_security as ts
+    def skip_host_validation(scope):
+        return None  # No validation error
+    ts.validate_host = skip_host_validation
+    logger.info("Successfully patched mcp.server.transport_security.validate_host")
+except ImportError:
+    logger.warning("mcp.server.transport_security module not found, skipping patch")
+except Exception as e:
+    logger.error(f"Failed to patch transport security: {e}")
 
 
 
