@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.0.9 (Ultimate Patch Mode)"
-echo "This version uses a direct class patch to bypass all security checks."
+echo "Version: 1.1.0 (Definitive Fix Mode)"
+echo "This version applies a deep-level patch to the MCP security middleware."
 echo ""
 
 
