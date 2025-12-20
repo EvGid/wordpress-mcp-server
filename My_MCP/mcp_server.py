@@ -4,56 +4,74 @@ WordPress MCP Server - Comprehensive WordPress & Server Management
 Built with official MCP Python SDK (FastMCP)
 """
 
-# ==================== TRANSPORT SECURITY PATCH ====================
-# The MCP SDK (mcp-python-sdk) includes DNS rebinding protection that rejects 
-# Cloudflare Tunnel hostnames by default (returning 421 Misdirected Request).
-# We monkey-patch the validation logic at the module level to allow ALL hosts.
+# ==================== TRANSPORT SECURITY & SSE PATCH ====================
+# The MCP SDK includes DNS rebinding protection that rejects Cloudflare Tunnel URLs.
+# We apply a definitive patch to disable security checks and ADD AGGRESSIVE LOGGING.
 try:
     import sys
+    import logging
     import mcp.server.transport_security as ts
-    # DEFINITIVE PATCH: Disable DNS rebinding protection entirely
-    try:
-        # 1. Patch the function (low level)
-        ts.validate_host = lambda scope: None
+    import mcp.server.sse as mcp_sse
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    # 1. Patch TransportSecurityMiddleware (The Gatekeeper)
+    if hasattr(ts, "TransportSecurityMiddleware"):
+        async def mock_validate(self, request: Request, is_post: bool = False) -> Response | None:
+            # DEBUG: Log every validation attempt
+            # We use print to stderr because logger might be filtered
+            print(f"DEBUG: Security bypass for {request.method} {request.url.path}", file=sys.stderr)
+            return None
+        ts.TransportSecurityMiddleware.validate_request = mock_validate
+        print("DEBUG: Successfully patched TransportSecurityMiddleware.validate_request", file=sys.stderr)
+
+    # 2. Patch SseServerTransport.connect_sse (The Entrance)
+    if hasattr(mcp_sse, "SseServerTransport"):
+        original_connect = mcp_sse.SseServerTransport.connect_sse
+        from contextlib import asynccontextmanager
         
-        # 2. Patch the correct class (identified from diagnostics)
-        if hasattr(ts, "TransportSecurityMiddleware"):
-            async def mock_validate(*args, **kwargs):
-                # Always allow, no response means success
-                return None
-            ts.TransportSecurityMiddleware.validate_request = mock_validate
-            print("DEBUG: Successfully patched TransportSecurityMiddleware.validate_request", file=sys.stderr)
-            
-        # 3. Force settings to be disabled by default
-        if hasattr(ts, "TransportSecuritySettings"):
-            # Patch the class itself to change defaults
-            from pydantic import Field
-            # Different versions of pydantic might have different field access
+        @asynccontextmanager
+        async def patched_connect(self, scope, receive, send):
+            print(f"DEBUG: SSE Connection attempt started for {scope.get('path')}", file=sys.stderr)
             try:
-                ts.TransportSecuritySettings.model_fields['enable_dns_rebinding_protection'].default = False
-                ts.TransportSecuritySettings.model_fields['allowed_hosts'].default = ["*"]
-            except Exception:
-                # Fallback for older pydantic/sdk
-                ts.TransportSecuritySettings.__pydantic_fields__['enable_dns_rebinding_protection'].default = False
-            print("DEBUG: Successfully disabled DNS rebinding protection in TransportSecuritySettings", file=sys.stderr)
-            
-        # 4. Ensure all modules see this
-        sys.modules['mcp.server.transport_security'] = ts
+                async with original_connect(self, scope, receive, send) as streams:
+                    print(f"DEBUG: SSE Stream established successfully", file=sys.stderr)
+                    yield streams
+            except Exception as e:
+                print(f"DEBUG: SSE Stream failed: {e}", file=sys.stderr)
+                raise
         
-        # 5. Diagnostic: Check if sse.py has a local reference we need to whack
-        import mcp.server.sse as sse
-        if hasattr(sse, "TransportSecurityMiddleware"):
-            sse.TransportSecurityMiddleware = ts.TransportSecurityMiddleware
-            print("DEBUG: Successfully whacked sse.TransportSecurityMiddleware reference", file=sys.stderr)
-            
-    except Exception as e:
-        print(f"DEBUG: Definitive patch failed: {e}", file=sys.stderr)
+        mcp_sse.SseServerTransport.connect_sse = patched_connect
+        print("DEBUG: Successfully patched SseServerTransport.connect_sse for logging", file=sys.stderr)
+
+    # 3. Disable DNS rebinding in Settings
+    if hasattr(ts, "TransportSecuritySettings"):
+        try:
+            ts.TransportSecuritySettings.model_fields['enable_dns_rebinding_protection'].default = False
+        except:
+            pass
+
+    # 4. Global Request Logger Middleware (The Detective)
+    # We will inject this into the FastMCP app before it runs
+    from starlette.middleware.base import BaseHTTPMiddleware
+    class RequestDiagnosticMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            print(f"--> {request.method} {request.url.path}", file=sys.stderr)
+            try:
+                response = await call_next(request)
+                print(f"<-- {response.status_code} {request.url.path}", file=sys.stderr)
+                return response
+            except Exception as e:
+                print(f"!!! Error handling {request.url.path}: {e}", file=sys.stderr)
+                raise
+
+    sys.modules['mcp.server.transport_security'] = ts
+    sys.modules['mcp.server.sse'] = mcp_sse
 except Exception as e:
-    print(f"DEBUG: Failed to apply transport security patch: {e}", file=sys.stderr)
+    print(f"DEBUG: Critical patch failure: {e}", file=sys.stderr)
 
 import asyncio
 import json
-import logging
 from typing import Any, Dict, List, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP, Context
@@ -742,9 +760,56 @@ if __name__ == "__main__":
     
     try:
         if transport == "sse":
-            # FastMCP handles its own server startup when transport="sse"
-            # It usually defaults to 127.0.0.1:8000 which matches our tunnel
-            mcp.run(transport="sse")
+            from mcp.server.sse import SseServerTransport
+            from starlette.applications import Starlette
+            from starlette.routing import Route, Mount
+            from starlette.responses import Response
+            import uvicorn
+
+            # Initialize transport
+            sse_transport = SseServerTransport("/messages/")
+            
+            # Define explicit SSE handler for debugging
+            async def handle_sse(request):
+                print(f"DEBUG: Handling GET /sse from {request.client}", file=sys.stderr)
+                try:
+                    async with sse_transport.connect_sse(
+                        request.scope, request.receive, request._send
+                    ) as streams:
+                        print("DEBUG: SSE Stream established, starting MCP loop...", file=sys.stderr)
+                        
+                        # Dynamically find the correct run method
+                        opts = mcp.create_initialization_options()
+                        if hasattr(mcp, "run_async"):
+                            await mcp.run_async(streams[0], streams[1], opts)
+                        elif hasattr(mcp, "_server") and hasattr(mcp._server, "run"):
+                            await mcp._server.run(streams[0], streams[1], opts)
+                        else:
+                            # Standard run might be a coroutine in some contexts
+                            res = mcp.run(streams[0], streams[1], opts)
+                            if asyncio.iscoroutine(res):
+                                await res
+                                
+                    print("DEBUG: SSE Connection closed normally", file=sys.stderr)
+                except Exception as e:
+                    print(f"DEBUG: Error in SSE handler: {e}", file=sys.stderr)
+                    # Re-raise to let starlette handle it or log it
+                    raise
+                return Response()
+
+            # Create Starlette app
+            app = Starlette(
+                routes=[
+                    Route("/sse", endpoint=handle_sse, methods=["GET"]),
+                    Mount("/messages/", app=sse_transport.handle_post_message),
+                ]
+            )
+            
+            # Add our status-tracking diagnostic middleware
+            app.add_middleware(RequestDiagnosticMiddleware)
+            
+            logger.info("Starting manual Starlette server for SSE transport on 127.0.0.1:8000")
+            uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
         else:
             mcp.run(transport=transport)
 

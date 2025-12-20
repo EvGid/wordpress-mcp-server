@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.0 (Definitive Fix Mode)"
-echo "This version applies a deep-level patch to the MCP security middleware."
+echo "Version: 1.1.1 (High-Res Diagnostic Mode)"
+echo "This version adds a request logger and manual SSE control for debugging timeouts."
 echo ""
 
 
