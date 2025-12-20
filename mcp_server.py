@@ -37,7 +37,7 @@ try:
         except:
             pass
 
-    # 4. Functional ASGI Middleware (v1.2.3 The Pulsed Handshake)
+    # 4. Functional ASGI Middleware (v1.3.0 Ngrok Edition)
     def diagnostic_middleware(app):
         async def asgi_app(scope, receive, send):
             if scope["type"] != "http":
