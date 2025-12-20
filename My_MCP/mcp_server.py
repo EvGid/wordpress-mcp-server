@@ -7,6 +7,7 @@ Built with official MCP Python SDK (FastMCP)
 import asyncio
 import json
 import logging
+import sys
 from typing import Any, Dict, List, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP, Context
@@ -17,11 +18,17 @@ WORDPRESS_USERNAME = "oasis"
 WORDPRESS_PASSWORD = "mfIk tKGA mJ0p gwSD KmkN N0Ve"
 
 # ==================== LOGGING SETUP ====================
+# Configure global logging to use stderr so it doesn't corrupt MCP stdio protocol
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.WARNING, # Only warnings and above to be safe
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr,
+    force=True
 )
 logger = logging.getLogger(__name__)
+
+
+
 
 # ==================== WORDPRESS CLIENT ====================
 class WordPressClient:
@@ -34,7 +41,7 @@ class WordPressClient:
             timeout=30.0,
             headers={"Content-Type": "application/json"}
         )
-        logger.info(f"WordPress client initialized for {base_url}")
+
     
     async def request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make authenticated request to WordPress API"""
@@ -53,8 +60,15 @@ class WordPressClient:
     async def close(self):
         await self.client.aclose()
 
-# Initialize WordPress client
-wp_client = WordPressClient(WORDPRESS_URL, WORDPRESS_USERNAME, WORDPRESS_PASSWORD)
+# wp_client will be initialized lazily
+wp_client = None
+
+def get_wp_client():
+    global wp_client
+    if wp_client is None:
+        wp_client = WordPressClient(WORDPRESS_URL, WORDPRESS_USERNAME, WORDPRESS_PASSWORD)
+    return wp_client
+
 
 # ==================== FASTMCP SERVER ====================
 mcp = FastMCP("WordPress MCP Server")
@@ -71,9 +85,9 @@ async def get_post(post_id: int = None, slug: str = None) -> str:
     """
     try:
         if post_id:
-            data = await wp_client.request("GET", f"posts/{post_id}")
+            data = await get_wp_client().request("GET", f"posts/{post_id}")
         elif slug:
-            posts = await wp_client.request("GET", f"posts?slug={slug}")
+            posts = await get_wp_client().request("GET", f"posts?slug={slug}")
             data = posts[0] if posts else None
         else:
             return json.dumps({"success": False, "message": "Provide post_id or slug"})
@@ -124,7 +138,7 @@ async def create_post(
         if tags:
             payload["tags"] = tags
         
-        data = await wp_client.request("POST", "posts", json=payload)
+        data = await get_wp_client().request("POST", "posts", json=payload)
         return json.dumps({
             "success": True,
             "post_id": data["id"],
@@ -162,7 +176,7 @@ async def update_post(
         if status is not None:
             payload["status"] = status
         
-        data = await wp_client.request("POST", f"posts/{post_id}", json=payload)
+        data = await get_wp_client().request("POST", f"posts/{post_id}", json=payload)
         return json.dumps({
             "success": True,
             "post_id": data["id"],
@@ -182,7 +196,7 @@ async def delete_post(post_id: int, force: bool = True) -> str:
     """
     try:
         params = {"force": "true" if force else "false"}
-        await wp_client.request("DELETE", f"posts/{post_id}", params=params)
+        await get_wp_client().request("DELETE", f"posts/{post_id}", params=params)
         action = "deleted permanently" if force else "moved to trash"
         return json.dumps({
             "success": True,
@@ -216,8 +230,8 @@ async def get_posts(
         if search:
             params["search"] = search
         
-        response = await wp_client.client.get(
-            f"{wp_client.base_url}/wp-json/wp/v2/posts",
+        response = await get_wp_client().client.get(
+            f"{get_wp_client().base_url}/wp-json/wp/v2/posts",
             params=params
         )
         response.raise_for_status()
@@ -254,7 +268,7 @@ async def publish_post(post_id: int) -> str:
         post_id: Post ID to publish
     """
     try:
-        data = await wp_client.request("POST", f"posts/{post_id}", json={"status": "publish"})
+        data = await get_wp_client().request("POST", f"posts/{post_id}", json={"status": "publish"})
         return json.dumps({
             "success": True,
             "post_id": data["id"],
@@ -272,7 +286,7 @@ async def unpublish_post(post_id: int) -> str:
         post_id: Post ID to unpublish
     """
     try:
-        data = await wp_client.request("POST", f"posts/{post_id}", json={"status": "draft"})
+        data = await get_wp_client().request("POST", f"posts/{post_id}", json={"status": "draft"})
         return json.dumps({
             "success": True,
             "post_id": data["id"],
@@ -293,9 +307,9 @@ async def get_page(page_id: int = None, slug: str = None) -> str:
     """
     try:
         if page_id:
-            data = await wp_client.request("GET", f"pages/{page_id}")
+            data = await get_wp_client().request("GET", f"pages/{page_id}")
         elif slug:
-            pages = await wp_client.request("GET", f"pages?slug={slug}")
+            pages = await get_wp_client().request("GET", f"pages?slug={slug}")
             data = pages[0] if pages else None
         else:
             return json.dumps({"success": False, "message": "Provide page_id or slug"})
@@ -338,7 +352,7 @@ async def create_page(
             "parent": parent
         }
         
-        data = await wp_client.request("POST", "pages", json=payload)
+        data = await get_wp_client().request("POST", "pages", json=payload)
         return json.dumps({
             "success": True,
             "page_id": data["id"],
@@ -372,7 +386,7 @@ async def update_page(
         if status is not None:
             payload["status"] = status
         
-        data = await wp_client.request("POST", f"pages/{page_id}", json=payload)
+        data = await get_wp_client().request("POST", f"pages/{page_id}", json=payload)
         return json.dumps({
             "success": True,
             "page_id": data["id"],
@@ -392,7 +406,7 @@ async def delete_page(page_id: int, force: bool = True) -> str:
     """
     try:
         params = {"force": "true" if force else "false"}
-        await wp_client.request("DELETE", f"pages/{page_id}", params=params)
+        await get_wp_client().request("DELETE", f"pages/{page_id}", params=params)
         action = "deleted permanently" if force else "moved to trash"
         return json.dumps({
             "success": True,
@@ -412,7 +426,7 @@ async def get_categories(per_page: int = 100) -> str:
         per_page: Number of categories to retrieve
     """
     try:
-        data = await wp_client.request("GET", f"categories?per_page={per_page}")
+        data = await get_wp_client().request("GET", f"categories?per_page={per_page}")
         categories = [
             {
                 "id": cat["id"],
@@ -441,7 +455,7 @@ async def create_category(name: str, description: str = "", parent: int = 0) -> 
             "description": description,
             "parent": parent
         }
-        data = await wp_client.request("POST", "categories", json=payload)
+        data = await get_wp_client().request("POST", "categories", json=payload)
         return json.dumps({
             "success": True,
             "category_id": data["id"],
@@ -459,7 +473,7 @@ async def get_tags(per_page: int = 100) -> str:
         per_page: Number of tags to retrieve
     """
     try:
-        data = await wp_client.request("GET", f"tags?per_page={per_page}")
+        data = await get_wp_client().request("GET", f"tags?per_page={per_page}")
         tags = [
             {
                 "id": tag["id"],
@@ -486,7 +500,7 @@ async def create_tag(name: str, description: str = "") -> str:
             "name": name,
             "description": description
         }
-        data = await wp_client.request("POST", "tags", json=payload)
+        data = await get_wp_client().request("POST", "tags", json=payload)
         return json.dumps({
             "success": True,
             "tag_id": data["id"],
@@ -508,8 +522,8 @@ async def get_media(per_page: int = 10, page: int = 1) -> str:
     """
     try:
         params = {"per_page": per_page, "page": page}
-        response = await wp_client.client.get(
-            f"{wp_client.base_url}/wp-json/wp/v2/media",
+        response = await get_wp_client().client.get(
+            f"{get_wp_client().base_url}/wp-json/wp/v2/media",
             params=params
         )
         response.raise_for_status()
@@ -544,7 +558,7 @@ async def get_users(per_page: int = 10) -> str:
         per_page: Number of users to retrieve
     """
     try:
-        data = await wp_client.request("GET", f"users?per_page={per_page}")
+        data = await get_wp_client().request("GET", f"users?per_page={per_page}")
         users = [
             {
                 "id": user["id"],
@@ -574,7 +588,7 @@ async def get_comments(post_id: int = None, per_page: int = 10) -> str:
         if post_id:
             endpoint += f"&post={post_id}"
         
-        data = await wp_client.request("GET", endpoint)
+        data = await get_wp_client().request("GET", endpoint)
         comments = [
             {
                 "id": c["id"],
@@ -598,7 +612,7 @@ async def approve_comment(comment_id: int) -> str:
         comment_id: Comment ID to approve
     """
     try:
-        data = await wp_client.request("POST", f"comments/{comment_id}", json={"status": "approved"})
+        data = await get_wp_client().request("POST", f"comments/{comment_id}", json={"status": "approved"})
         return json.dumps({
             "success": True,
             "comment_id": data["id"],
@@ -617,7 +631,7 @@ async def delete_comment(comment_id: int, force: bool = True) -> str:
     """
     try:
         params = {"force": "true" if force else "false"}
-        await wp_client.request("DELETE", f"comments/{comment_id}", params=params)
+        await get_wp_client().request("DELETE", f"comments/{comment_id}", params=params)
         action = "deleted permanently" if force else "moved to trash"
         return json.dumps({
             "success": True,
@@ -633,7 +647,7 @@ async def delete_comment(comment_id: int, force: bool = True) -> str:
 async def get_site_info() -> str:
     """Get WordPress site information"""
     try:
-        response = await wp_client.client.get(f"{wp_client.base_url}/wp-json")
+        response = await get_wp_client().client.get(f"{get_wp_client().base_url}/wp-json")
         response.raise_for_status()
         data = response.json()
         
@@ -655,7 +669,7 @@ async def get_site_info() -> str:
 
 async def cleanup():
     """Cleanup resources on shutdown"""
-    await wp_client.close()
+    await get_wp_client().close()
 
 if __name__ == "__main__":
     import sys

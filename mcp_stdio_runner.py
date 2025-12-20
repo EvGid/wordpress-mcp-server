@@ -3,46 +3,41 @@ import os
 import sys
 import logging
 
-# Configure logging to write to file since stdout is used for MCP protocol
+# REDIRECT EVERYTHING UNEXPECTED TO STDERR IMMEDIATELY
+# This prevents any library or import noise from corrupting the MCP stream
+_original_stdout = sys.stdout
+sys.stdout = sys.stderr
+
+# Ensure logging goes to stderr as well
 logging.basicConfig(
-    filename='mcp_stdio.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr,
+    force=True
 )
 
-# Ensure we can import from the same directory
+# Standard boilerplate for paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(script_dir)
-os.chdir(script_dir)
+my_mcp_dir = os.path.join(script_dir, "My_MCP")
+sys.path.insert(0, my_mcp_dir)
 
+# Import happens with sys.stdout redirected
 try:
-    import mcp_sse_server
+    import mcp_server
 except ImportError as e:
-    logging.error(f"Failed to import mcp_sse_server: {e}")
+    logging.error(f"Failed to import mcp_server: {e}")
     sys.exit(1)
 
-async def main():
-    try:
-        # Initialize the global client manually since we aren't using the FastAPI lifespan
-        logging.info("Initializing WordPressMCP client...")
-        mcp_sse_server.wordpress_mcp = mcp_sse_server.WordPressMCP(
-            mcp_sse_server.WORDPRESS_URL=https://04travel.ru
-            mcp_sse_server.WORDPRESS_USERNAME=oasis
-            mcp_sse_server.WORDPRESS_PASSWORD=mfIk tKGA mJ0p gwSD KmkN N0Ve
-        )
-        
-        logging.info("Starting stdio server...")
-        from mcp.server.stdio import stdio_server
-        
-        async with stdio_server() as (read, write):
-            await mcp_sse_server.mcp_server.run(
-                read, 
-                write, 
-                mcp_sse_server.mcp_server.create_initialization_options()
-            )
-    except Exception as e:
-        logging.critical(f"Server crashed: {e}")
-        raise
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    # RESTORE original stdout ONLY when calling run
+    # sys.__stdout__ is the true underlying stdout
+    sys.stdout = sys.__stdout__
+    
+    try:
+        # FastMCP.run(transport="stdio") will take over stdin/stdout
+        mcp_server.mcp.run(transport="stdio")
+    except Exception as e:
+        logging.critical(f"Server error: {e}")
+        # Make sure we don't print to the now-restored stdout on failure
+        sys.stdout = sys.stderr
+        sys.exit(1)
