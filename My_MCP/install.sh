@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.0.7 (Security Patch Mode)"
-echo "This version bypasses the 421 Misdirected Request error."
+echo "Version: 1.0.8 (Diagnostic Mode)"
+echo "This version inspects the library source to find the cause of error 421."
 echo ""
 
 

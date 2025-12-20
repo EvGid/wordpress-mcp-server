@@ -11,6 +11,23 @@ Built with official MCP Python SDK (FastMCP)
 try:
     import sys
     import mcp.server.transport_security as ts
+    # diagnostic: print source of validation functions
+    try:
+        import os
+        for mod_name in ['mcp.server.transport_security', 'mcp.server.sse']:
+            mod = sys.modules.get(mod_name)
+            if mod and hasattr(mod, '__file__'):
+                print(f"DEBUG: File for {mod_name}: {mod.__file__}", file=sys.stderr)
+                with open(mod.__file__, 'r') as f:
+                    content = f.readlines()
+                    # Print lines around the reported error in sse.py (132)
+                    if 'sse' in mod_name:
+                        print(f"DEBUG: {mod_name} lines 120-140:", file=sys.stderr)
+                        for i, line in enumerate(content[119:140], 120):
+                            print(f"{i}: {line.strip()}", file=sys.stderr)
+    except Exception as e:
+        print(f"DEBUG: Diagnostic failed: {e}", file=sys.stderr)
+    
     # 1. Patch the validation function
     ts.validate_host = lambda scope: None
     # 2. Patch settings class if it exists
