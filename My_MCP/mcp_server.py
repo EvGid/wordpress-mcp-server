@@ -37,30 +37,37 @@ try:
         except:
             pass
 
-    # 4. Global Request Logger Middleware (The Detective)
-    from starlette.middleware.base import BaseHTTPMiddleware
-    class RequestDiagnosticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            print(f"--> {request.method} {request.url.path}", file=sys.stderr)
-            try:
-                response = await call_next(request)
-                print(f"<-- {response.status_code} {request.url.path}", file=sys.stderr)
-                return response
-            except Exception as e:
-                print(f"!!! Error handling {request.url.path}: {e}", file=sys.stderr)
-                raise
+    # 4. Functional ASGI Middleware (The Hybrid)
+    # BaseHTTPMiddleware is broken for SSE in Starlette. 
+    # We use a pure ASGI middleware to log and set headers safely.
+    def diagnostic_middleware(app):
+        async def asgi_app(scope, receive, send):
+            if scope["type"] != "http":
+                return await app(scope, receive, send)
 
-    # 5. Cloudflare & Proxy Optimization Middleware
-    class CloudflareOptimizationMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            response = await call_next(request)
-            if request.url.path == "/sse":
-                response.headers["Cache-Control"] = "no-cache, no-transform"
-                response.headers["X-Accel-Buffering"] = "no"
-                response.headers["Connection"] = "keep-alive"
-                if "content-length" in response.headers:
-                    del response.headers["content-length"]
-            return response
+            path = scope.get("path", "")
+            method = scope.get("method", "")
+            
+            async def send_wrapper(message):
+                if message["type"] == "http.response.start":
+                    # Add Cloudflare optimizations for SSE
+                    if path == "/sse":
+                        headers = list(message.get("headers", []))
+                        headers.append((b"cache-control", b"no-cache, no-transform"))
+                        headers.append((b"x-accel-buffering", b"no"))
+                        headers.append((b"connection", b"keep-alive"))
+                        # Filter out content-length for streaming
+                        headers = [h for h in headers if h[0].lower() != b"content-length"]
+                        message["headers"] = headers
+                    
+                    status = message.get("status")
+                    print(f"<-- {status} {path}", file=sys.stderr)
+                
+                await send(message)
+
+            print(f"--> {method} {path}", file=sys.stderr)
+            return await app(scope, receive, send_wrapper)
+        return asgi_app
 
     sys.modules['mcp.server.transport_security'] = ts
     sys.modules['mcp.server.sse'] = mcp_sse
@@ -763,10 +770,8 @@ if __name__ == "__main__":
             # This is more robust than manual transport management
             app = mcp.sse_app()
             
-            # Add our status-tracking diagnostic middleware
-            app.add_middleware(RequestDiagnosticMiddleware)
-            # Add Cloudflare optimizations
-            app.add_middleware(CloudflareOptimizationMiddleware)
+            # Wrap with our functional diagnostic middleware
+            app = diagnostic_middleware(app)
             
             logger.info("Starting FastMCP SSE server on 0.0.0.0:8000")
             print("DEBUG: Server listening on 0.0.0.0:8000 for SSE transport", file=sys.stderr)

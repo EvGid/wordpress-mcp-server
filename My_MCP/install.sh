@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.2 (Robust SSE Edition)"
-echo "This version uses official FastMCP sse_app() and Cloudflare optimizations."
+echo "Version: 1.1.3 (Streaming Fix Edition)"
+echo "This version fixes the Starlette AssertionError and protocol buffering."
 echo ""
 
 
