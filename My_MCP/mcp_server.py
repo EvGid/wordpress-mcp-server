@@ -696,10 +696,12 @@ if __name__ == "__main__":
     
     try:
         if transport == "sse":
-            # Explicitly run on 0.0.0.0 for easier tunnel access
-            mcp.run(transport="sse", host="0.0.0.0", port=8000)
+            # FastMCP handles its own server startup when transport="sse"
+            # It usually defaults to 127.0.0.1:8000 which matches our tunnel
+            mcp.run(transport="sse")
         else:
             mcp.run(transport=transport)
+
     except Exception as e:
         logger.error(f"Server crashed: {e}", exc_info=True)
         sys.exit(1)
