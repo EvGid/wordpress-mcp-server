@@ -109,7 +109,7 @@ echo ""
 echo "MCP Server is running on port 8000 (SSE Mode)"
 echo ""
 echo "Your HTTPS URL for ChatGPT:"
-TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | head -1)
+TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | tail -n 1)
 echo "${TUNNEL_URL}/sse"
 echo ""
 echo "IMPORTANT: In ChatGPT, use the URL above (including /sse)"
