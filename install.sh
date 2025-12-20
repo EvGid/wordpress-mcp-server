@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.4 (Root Reorg Edition)"
-echo "This version deploys directly to the root folder as requested."
+echo "Version: 1.1.5 (SSE Padding Edition)"
+echo "This version adds 2KB stream padding to resolve Cloudflare timeouts."
 echo ""
 
 

@@ -63,9 +63,22 @@ try:
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
+                # SSE Padding Trick: Send 2KB of whitespace to force proxies to flush
+                if message["type"] == "http.response.body" and path == "/sse":
+                    # We only pad the VERY FIRST chunk of the body
+                    if not hasattr(asgi_app, "_padded"):
+                        padding = b":" + b" " * 2048 + b"\n\n"
+                        message["body"] = padding + message.get("body", b"")
+                        asgi_app._padded = True
+                        print("DEBUG: Sent 2KB padding to SSE stream", file=sys.stderr)
+
                 await send(message)
 
-            print(f"--> {method} {path}", file=sys.stderr)
+            if "/messages/" in path:
+                print(f"--> {method} {path} (MCP Message Receipt)", file=sys.stderr)
+            else:
+                print(f"--> {method} {path}", file=sys.stderr)
+            
             return await app(scope, receive, send_wrapper)
         return asgi_app
 
