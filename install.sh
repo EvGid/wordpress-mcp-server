@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.2.0 (The Final Stand)"
-echo "This version uses root redirects and 16-chunk pulsed padding."
+echo "Version: 1.2.1 (The Pure Handshake)"
+echo "This version removes all custom middleware for maximum SDK compatibility."
 echo ""
 
 

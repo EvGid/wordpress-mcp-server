@@ -37,70 +37,8 @@ try:
         except:
             pass
 
-    # 4. Functional ASGI Middleware (The Hybrid)
-    # BaseHTTPMiddleware is broken for SSE in Starlette. 
-    # We use a pure ASGI middleware to log and set headers safely.
-    def diagnostic_middleware(app):
-        async def asgi_app(scope, receive, send):
-            if scope["type"] != "http":
-                return await app(scope, receive, send)
-
-            path = scope.get("path", "")
-            method = scope.get("method", "")
-            
-            # 1. Redirect root to /sse to catch misconfigured clients (v1.2.0)
-            if path == "/" and method == "GET":
-                await send({
-                    "type": "http.response.start", 
-                    "status": 307,
-                    "headers": [(b"location", b"/sse")]
-                })
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
-                print(f"DEBUG: Redirecting {method} {path} -> /sse", file=sys.stderr)
-                return
-
-            # Use a local flag to ensure padding is per-request (v1.2.0)
-            request_state = {"padded": False}
-
-            async def send_wrapper(message):
-                if message["type"] == "http.response.start":
-                    # Add Cloudflare optimizations for SSE
-                    if path == "/sse":
-                        headers = list(message.get("headers", []))
-                        headers.append((b"cache-control", b"no-cache, no-transform, no-store, must-revalidate"))
-                        headers.append((b"x-accel-buffering", b"no"))
-                        headers.append((b"x-content-type-options", b"nosniff"))
-                        headers.append((b"connection", b"keep-alive"))
-                        # Anti-compression: prevents Cloudflare from buffering to compress
-                        headers.append((b"content-encoding", b"identity"))
-                        # Force chunked encoding by removing content-length
-                        headers = [h for h in headers if h[0].lower() != b"content-length"]
-                        message["headers"] = headers
-                    
-                    status = message.get("status")
-                    print(f"<-- {status} {path}", file=sys.stderr)
-                
-                # SSE Padding: Pulsed delivery 16KB (v1.2.0)
-                if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
-                    if not request_state["padded"]:
-                        # 16KB padding in 16 separate 1KB chunks
-                        original_body = message.get("body") or b""
-                        padding_chunk = b":" + b" " * 1024 + b"\n\n"
-                        for i in range(15):
-                            await send({"type": "http.response.body", "body": padding_chunk, "more_body": True})
-                            await asyncio.sleep(0.01)
-                        
-                        # Use the original body from the app (the first byte of padding is already sent in chunks)
-                        # We combine the LAST chunk with the original body to avoid ending the body prematurely
-                        message["body"] = padding_chunk + original_body
-                        request_state["padded"] = True
-                        print(f"DEBUG: Sent 16KB pulsed padding to {method} {path}", file=sys.stderr)
-
-                await send(message)
-
-            print(f"--> {method} {path}" + (" (MCP Message)" if "/messages/" in path else ""), file=sys.stderr)
-            return await app(scope, receive, send_wrapper)
-        return asgi_app
+    # 4. Diagnostic Logging (v1.2.1 Pure Handshake)
+    print("DEBUG: v1.2.1 Pure Handshake - Middleware removed", file=sys.stderr)
 
     sys.modules['mcp.server.transport_security'] = ts
     sys.modules['mcp.server.sse'] = mcp_sse
@@ -802,9 +740,6 @@ if __name__ == "__main__":
             # Use the official sse_app() from FastMCP
             # This is more robust than manual transport management
             app = mcp.sse_app()
-            
-            # Wrap with our functional diagnostic middleware
-            app = diagnostic_middleware(app)
             
             logger.info("Starting FastMCP SSE server on 0.0.0.0:8000")
             print("DEBUG: Server listening on 0.0.0.0:8000 for SSE transport", file=sys.stderr)
