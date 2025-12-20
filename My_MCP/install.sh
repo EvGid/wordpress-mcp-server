@@ -7,9 +7,10 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.0.4 (Nuclear Reset Mode)"
-echo "This will perform a clean install by clearing old files."
+echo "Version: 1.0.5 (Debug & Stability Mode)"
+echo "Enabling detailed logging and improved tunnel configuration."
 echo ""
+
 
 # Step 1: Update system
 echo "Step 1: Updating system..."
