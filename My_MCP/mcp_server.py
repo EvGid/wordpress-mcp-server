@@ -4,10 +4,27 @@ WordPress MCP Server - Comprehensive WordPress & Server Management
 Built with official MCP Python SDK (FastMCP)
 """
 
+# ==================== TRANSPORT SECURITY PATCH ====================
+# The MCP SDK (mcp-python-sdk) includes DNS rebinding protection that rejects 
+# Cloudflare Tunnel hostnames by default (returning 421 Misdirected Request).
+# We monkey-patch the validation logic at the module level to allow ALL hosts.
+try:
+    import sys
+    import mcp.server.transport_security as ts
+    # 1. Patch the validation function
+    ts.validate_host = lambda scope: None
+    # 2. Patch settings class if it exists
+    if hasattr(ts, "TransportSecuritySettings"):
+        ts.TransportSecuritySettings.authorized_hosts = ["*"]
+    # 3. Force it into sys.modules to ensure all future imports get the patched version
+    sys.modules['mcp.server.transport_security'] = ts
+    print("DEBUG: Successfully applied global transport security patch", file=sys.stderr)
+except Exception as e:
+    print(f"DEBUG: Failed to apply transport security patch: {e}", file=sys.stderr)
+
 import asyncio
 import json
 import logging
-import sys
 from typing import Any, Dict, List, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP, Context
@@ -26,21 +43,6 @@ logging.basicConfig(
     force=True
 )
 logger = logging.getLogger(__name__)
- 
-# ==================== TRANSPORT SECURITY PATCH ====================
-# The MCP SDK (mcp-python-sdk) includes DNS rebinding protection that rejects 
-# Cloudflare Tunnel hostnames by default (returning 421 Misdirected Request).
-# We monkey-patch validate_host to allow all hosts for this tunnel setup.
-try:
-    import mcp.server.transport_security as ts
-    def skip_host_validation(scope):
-        return None  # No validation error
-    ts.validate_host = skip_host_validation
-    logger.info("Successfully patched mcp.server.transport_security.validate_host")
-except ImportError:
-    logger.warning("mcp.server.transport_security module not found, skipping patch")
-except Exception as e:
-    logger.error(f"Failed to patch transport security: {e}")
 
 
 

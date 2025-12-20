@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.0.6 (Auto-URL Detection Mode)"
-echo "This version automatically finds your new tunnel link."
+echo "Version: 1.0.7 (Security Patch Mode)"
+echo "This version bypasses the 421 Misdirected Request error."
 echo ""
 
 
@@ -146,5 +146,9 @@ echo "  Status:  systemctl status wordpress-mcp"
 echo "  Logs:    journalctl -u wordpress-mcp -n 50 --no-pager"
 echo "  Restart: systemctl restart wordpress-mcp"
 echo "=========================================="
+
+echo ""
+echo "DEBUG - Fresh Server Logs (Checking Patch Status):"
+journalctl -u wordpress-mcp -n 20 --no-pager | grep "patch" || echo "Note: Patch message not found in first 20 lines, check logs manually."
 
 
