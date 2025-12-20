@@ -81,14 +81,28 @@ try:
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
-                # SSE Padding: 16KB (16384 bytes) is the ultimate option for buffer flushing
+                # SSE Padding: Pulsed delivery to force proxy flushes (v1.1.9)
                 if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
                     if not request_state["padded"]:
-                        # 16KB is the nuclear option for buffer flushing
-                        padding = b":" + b" " * 16384 + b"\n\n"
-                        message["body"] = padding + (message.get("body") or b"")
+                        # 16KB of padding delivered in 8 separate 2KB chunks
+                        # This "tickles" the proxy better than one giant chunk
+                        original_body = message.get("body") or b""
+                        padding_chunk = b":" + b" " * 2048 + b"\n\n"
+                        
+                        # Send 7 chunks separately first
+                        for i in range(7):
+                            await send({
+                                "type": "http.response.body",
+                                "body": padding_chunk,
+                                "more_body": True
+                            })
+                            # Micro-sleep to ensure separate packets
+                            await asyncio.sleep(0.01)
+                        
+                        # Last chunk combined with original body
+                        message["body"] = padding_chunk + original_body
                         request_state["padded"] = True
-                        print(f"DEBUG: Sent 16KB padding to {method} {path} stream", file=sys.stderr)
+                        print(f"DEBUG: Sent 16KB pulsed padding to {method} {path}", file=sys.stderr)
 
                 await send(message)
 

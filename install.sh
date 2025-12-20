@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.8 (Ultimate Flush Edition)"
-echo "This version uses 16KB padding and anti-compression headers."
+echo "Version: 1.1.9 (Pulse Edition)"
+echo "This version uses multi-chunk pulsing to force proxy flushes."
 echo ""
 
 
