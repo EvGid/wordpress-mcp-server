@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.7 (Compatibility Edition)"
-echo "This version fixes per-request padding and POST compatibility."
+echo "Version: 1.1.8 (Ultimate Flush Edition)"
+echo "This version uses 16KB padding and anti-compression headers."
 echo ""
 
 

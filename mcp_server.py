@@ -72,6 +72,8 @@ try:
                         headers.append((b"x-accel-buffering", b"no"))
                         headers.append((b"x-content-type-options", b"nosniff"))
                         headers.append((b"connection", b"keep-alive"))
+                        # Anti-compression: prevents Cloudflare from buffering to compress
+                        headers.append((b"content-encoding", b"identity"))
                         # Force chunked encoding by removing content-length
                         headers = [h for h in headers if h[0].lower() != b"content-length"]
                         message["headers"] = headers
@@ -79,14 +81,14 @@ try:
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
-                # SSE Padding: 8KB of whitespace at the START to force proxies to flush
+                # SSE Padding: 16KB (16384 bytes) is the ultimate option for buffer flushing
                 if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
                     if not request_state["padded"]:
-                        # 8KB is the nuclear option for buffer flushing
-                        padding = b":" + b" " * 8192 + b"\n\n"
+                        # 16KB is the nuclear option for buffer flushing
+                        padding = b":" + b" " * 16384 + b"\n\n"
                         message["body"] = padding + (message.get("body") or b"")
                         request_state["padded"] = True
-                        print(f"DEBUG: Sent 8KB padding to {method} {path} stream", file=sys.stderr)
+                        print(f"DEBUG: Sent 16KB padding to {method} {path} stream", file=sys.stderr)
 
                 await send(message)
 
