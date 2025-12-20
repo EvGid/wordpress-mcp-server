@@ -48,20 +48,19 @@ try:
             path = scope.get("path", "")
             method = scope.get("method", "")
             
-            # Use a local flag to ensure padding is per-request (CRITICAL FIX FOR v1.1.7)
-            # This prevents a POST /sse probe from "stealing" the padding from the actual GET /sse
-            request_state = {"padded": False}
-
-            if path == "/sse" and method == "POST":
-                # Compatibility: return 200 OK for POST /sse probes (some clients do this)
+            # 1. Redirect root to /sse to catch misconfigured clients (v1.2.0)
+            if path == "/" and method == "GET":
                 await send({
                     "type": "http.response.start", 
-                    "status": 200,
-                    "headers": [(b"content-length", b"2"), (b"content-type", b"text/plain")]
+                    "status": 307,
+                    "headers": [(b"location", b"/sse")]
                 })
-                await send({"type": "http.response.body", "body": b"OK", "more_body": False})
-                print(f"DEBUG: Handled compatibility probe {method} {path}", file=sys.stderr)
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                print(f"DEBUG: Redirecting {method} {path} -> /sse", file=sys.stderr)
                 return
+
+            # Use a local flag to ensure padding is per-request (v1.2.0)
+            request_state = {"padded": False}
 
             async def send_wrapper(message):
                 if message["type"] == "http.response.start":
@@ -81,25 +80,18 @@ try:
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
-                # SSE Padding: Pulsed delivery to force proxy flushes (v1.1.9)
+                # SSE Padding: Pulsed delivery 16KB (v1.2.0)
                 if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
                     if not request_state["padded"]:
-                        # 16KB of padding delivered in 8 separate 2KB chunks
-                        # This "tickles" the proxy better than one giant chunk
+                        # 16KB padding in 16 separate 1KB chunks
                         original_body = message.get("body") or b""
-                        padding_chunk = b":" + b" " * 2048 + b"\n\n"
-                        
-                        # Send 7 chunks separately first
-                        for i in range(7):
-                            await send({
-                                "type": "http.response.body",
-                                "body": padding_chunk,
-                                "more_body": True
-                            })
-                            # Micro-sleep to ensure separate packets
+                        padding_chunk = b":" + b" " * 1024 + b"\n\n"
+                        for i in range(15):
+                            await send({"type": "http.response.body", "body": padding_chunk, "more_body": True})
                             await asyncio.sleep(0.01)
                         
-                        # Last chunk combined with original body
+                        # Use the original body from the app (the first byte of padding is already sent in chunks)
+                        # We combine the LAST chunk with the original body to avoid ending the body prematurely
                         message["body"] = padding_chunk + original_body
                         request_state["padded"] = True
                         print(f"DEBUG: Sent 16KB pulsed padding to {method} {path}", file=sys.stderr)
