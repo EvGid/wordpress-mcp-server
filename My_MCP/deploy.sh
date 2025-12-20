@@ -7,6 +7,7 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
+echo "Version: 1.0.3 (Strict Update Mode)"
 echo ""
 
 # Step 1: Update system
