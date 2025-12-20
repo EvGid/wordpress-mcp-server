@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.2.1 (The Pure Handshake)"
-echo "This version removes all custom middleware for maximum SDK compatibility."
+echo "Version: 1.2.3 (The Pulsed Handshake)"
+echo "This version uses pulsed padding and official SDK handlers."
 echo ""
 
 

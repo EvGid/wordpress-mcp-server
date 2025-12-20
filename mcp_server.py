@@ -37,8 +37,51 @@ try:
         except:
             pass
 
-    # 4. Diagnostic Logging (v1.2.1 Pure Handshake)
-    print("DEBUG: v1.2.1 Pure Handshake - Middleware removed", file=sys.stderr)
+    # 4. Functional ASGI Middleware (v1.2.3 The Pulsed Handshake)
+    def diagnostic_middleware(app):
+        async def asgi_app(scope, receive, send):
+            if scope["type"] != "http":
+                return await app(scope, receive, send)
+
+            path = scope.get("path", "")
+            method = scope.get("method", "")
+            
+            # Per-request state for padding
+            request_state = {"padded": False}
+
+            async def send_wrapper(message):
+                if message["type"] == "http.response.start":
+                    if path == "/sse":
+                        headers = list(message.get("headers", []))
+                        headers.append((b"cache-control", b"no-cache, no-transform, no-store, must-revalidate"))
+                        headers.append((b"x-accel-buffering", b"no"))
+                        headers.append((b"x-content-type-options", b"nosniff"))
+                        headers.append((b"connection", b"keep-alive"))
+                        headers.append((b"content-encoding", b"identity"))
+                        # Force chunked encoding
+                        headers = [h for h in headers if h[0].lower() != b"content-length"]
+                        message["headers"] = headers
+                    
+                    print(f"<-- {message.get('status')} {path}", file=sys.stderr)
+                
+                # PULSED PADDING: 16 chunks of 1KB to force Cloudflare to flush the buffer
+                if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
+                    if not request_state["padded"]:
+                        original_body = message.get("body") or b""
+                        padding_chunk = b":" + b" " * 1024 + b"\n\n"
+                        for i in range(15):
+                            await send({"type": "http.response.body", "body": padding_chunk, "more_body": True})
+                            await asyncio.sleep(0.01)
+                        
+                        message["body"] = padding_chunk + original_body
+                        request_state["padded"] = True
+                        print(f"DEBUG: Sent 16KB pulsed padding to {method} {path}", file=sys.stderr)
+
+                await send(message)
+
+            print(f"--> {method} {path}" + (" (MCP Message)" if "/messages/" in path else ""), file=sys.stderr)
+            return await app(scope, receive, send_wrapper)
+        return asgi_app
 
     sys.modules['mcp.server.transport_security'] = ts
     sys.modules['mcp.server.sse'] = mcp_sse
@@ -740,6 +783,9 @@ if __name__ == "__main__":
             # Use the official sse_app() from FastMCP
             # This is more robust than manual transport management
             app = mcp.sse_app()
+            
+            # Wrap with diagnostic_middleware for pulsed padding (v1.2.3)
+            app = diagnostic_middleware(app)
             
             logger.info("Starting FastMCP SSE server on 0.0.0.0:8000")
             print("DEBUG: Server listening on 0.0.0.0:8000 for SSE transport", file=sys.stderr)
