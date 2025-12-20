@@ -1,65 +1,55 @@
 #!/bin/bash
+# WordPress MCP Server - Production Deployment Script
+# Run this on your Ubuntu server
 
-echo "==================================="
+set -e  # Exit on error
+
+echo "=========================================="
 echo "WordPress MCP Server - Installation"
-echo "==================================="
+echo "=========================================="
+echo "Version: 1.1.4 (Root Reorg Edition)"
+echo "This version deploys directly to the root folder as requested."
+echo ""
 
-# Шаг 1: Обновить систему
+
+
+# Step 1: Update system
 echo "Step 1: Updating system..."
-sudo apt update && sudo apt upgrade -y
+apt update && apt upgrade -y
 
-# Шаг 2: Установить зависимости
+# Step 2: Install dependencies
 echo "Step 2: Installing dependencies..."
-sudo apt install -y python3 python3-pip python3-venv git curl wget net-tools
+apt install -y python3 python3-pip python3-venv git curl wget
 
-# Шаг 3: Создать директорию проекта
-echo "Step 3: Creating project directory..."
-sudo mkdir -p /opt/wordpress-mcp-server
+# Step 3: Clean Start
+echo "Step 3: Wiping old directory for a clean install..."
+rm -rf /opt/wordpress-mcp-server
+mkdir -p /opt/wordpress-mcp-server
 cd /opt/wordpress-mcp-server
 
-# Шаг 4: Копировать файлы проекта
-echo "Step 4: Please copy these files to /opt/wordpress-mcp-server/:"
-echo "  - mcp_sse_server.py"
-echo "  - requirements.txt"
-echo ""
-read -p "Press Enter when files are copied..."
+# Step 4: Clone repository
+echo "Step 4: Cloning fresh repository from GitHub..."
+git clone https://github.com/EvGid/wordpress-mcp-server.git .
 
-# Шаг 5: Создать виртуальное окружение
+# Step 5: Create virtual environment
 echo "Step 5: Creating Python virtual environment..."
 python3 -m venv venv
 
-# Шаг 6: Активировать и установить зависимости
+# Step 6: Install Python packages
 echo "Step 6: Installing Python packages..."
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Шаг 7: Настроить WordPress credentials
-echo "Step 7: Configure WordPress credentials..."
-echo "Creating .env file..."
-if [ -f .env.example ]; then
-    cp .env.example .env
-    echo "Please edit .env file and set:"
-    echo "  WORDPRESS_URL=https://your-site.com/"
-    echo "  WORDPRESS_USERNAME=your-username"
-    echo "  WORDPRESS_PASSWORD=your-application-password"
-else
-    echo "Creating .env file..."
-    cat > .env <<EOF
-WORDPRESS_URL=https://your-wordpress-site.com/
-WORDPRESS_USERNAME=your-username
-WORDPRESS_PASSWORD=your-application-password
-EOF
-    echo "Please edit .env file and set your WordPress credentials"
-fi
-echo ""
-read -p "Press Enter when configured..."
+# Step 7: Test connection
+echo "Step 7: Testing WordPress connection..."
+python test_server.py
 
-# Шаг 8: Создать systemd сервис
+# Step 8: Create systemd service
 echo "Step 8: Creating systemd service..."
-sudo tee /etc/systemd/system/wordpress-mcp-server.service > /dev/null <<EOF
+cat > /etc/systemd/system/wordpress-mcp.service <<'EOF'
 [Unit]
-Description=WordPress MCP SSE Server for OpenAI
+Description=WordPress MCP SSE Server
 After=network.target
 
 [Service]
@@ -67,7 +57,8 @@ Type=simple
 User=root
 WorkingDirectory=/opt/wordpress-mcp-server
 Environment=PATH=/opt/wordpress-mcp-server/venv/bin
-ExecStart=/opt/wordpress-mcp-server/venv/bin/python mcp_sse_server.py
+# Using --sse for ChatGPT MCP compatibility
+ExecStart=/opt/wordpress-mcp-server/venv/bin/python mcp_server.py --sse
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -77,66 +68,81 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-# Шаг 9: Включить и запустить сервис
+# Step 9: Enable and start service
 echo "Step 9: Starting MCP server..."
-sudo systemctl daemon-reload
-sudo systemctl enable wordpress-mcp-server
-sudo systemctl start wordpress-mcp-server
+systemctl daemon-reload
+systemctl enable wordpress-mcp
+systemctl restart wordpress-mcp
 
-# Шаг 10: Настроить firewall
-echo "Step 10: Configuring firewall..."
-sudo ufw allow 8000/tcp
-echo "Firewall configured!"
-
-# Шаг 11: Проверить статус
+# Step 10: Check status
 echo ""
-echo "Step 11: Checking server status..."
+echo "Step 10: Checking server status..."
 sleep 3
-sudo systemctl status wordpress-mcp-server --no-pager
+systemctl status wordpress-mcp --no-pager
 
-# Шаг 12: Тестирование
+# Step 11: Install Cloudflare Tunnel
 echo ""
-echo "Step 12: Testing endpoints..."
-echo "Health check:"
-curl -s http://localhost:8000/health | python3 -m json.tool
+echo "Step 11: Installing Cloudflare Tunnel..."
+if [ ! -f "/usr/local/bin/cloudflared" ]; then
+    cd /root
+    wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+    chmod +x cloudflared-linux-amd64
+    mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
+fi
 
+# Step 12: Start Cloudflare Tunnel
+echo "Step 12: Starting Cloudflare Tunnel..."
+# Kill any existing cloudflared to avoid port conflicts
+pkill cloudflared || true
+sleep 2
+
+# Clear old logs to ensure we get exactly the fresh URL
+> /root/cloudflared.log
+
+# Run cloudflared. --no-chunked-encoding helps with some proxy issues.
+nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-chunked-encoding > /root/cloudflared.log 2>&1 &
+
+echo "Waiting for Cloudflare Tunnel to generate a new URL (up to 30s)..."
+TUNNEL_URL=""
+for i in {1..30}; do
+    # Use grep -oa because cloudflared logs sometimes contain binary/control characters
+    TUNNEL_URL=$(grep -oa 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | tail -n 1)
+    if [ ! -z "$TUNNEL_URL" ]; then
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 echo ""
-echo "Server info:"
-curl -s http://localhost:8000/ | python3 -m json.tool
 
-# Шаг 13: Установить Cloudflare Tunnel
+# Step 13: Get HTTPS URL
 echo ""
-echo "Step 13: Installing Cloudflare Tunnel for HTTPS..."
-cd /root
-wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-chmod +x cloudflared-linux-amd64
-sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
-
-echo "Starting Cloudflare Tunnel..."
-nohup cloudflared tunnel --url http://localhost:8000 > cloudflared.log 2>&1 &
-sleep 5
-
-echo ""
-echo "Getting HTTPS URL..."
-cat cloudflared.log | grep "https://"
-
-# Итоги
-echo ""
-echo "==================================="
+echo "=========================================="
 echo "✅ INSTALLATION COMPLETE!"
-echo "==================================="
-echo ""
-echo "MCP Server is running on port 8000"
-echo ""
-echo "Your HTTPS URL (for ChatGPT):"
-cat cloudflared.log | grep "https://" | grep -o 'https://[^ ]*' | head -1
-echo ""
-echo "Use this URL in ChatGPT: https://your-url.trycloudflare.com/sse"
+echo "=========================================="
+
+if [ -z "$TUNNEL_URL" ]; then
+    echo "❌ ERROR: Could not retrieve Tunnel URL."
+    echo "Check logs manually: cat /root/cloudflared.log"
+else
+    echo "MCP Server is running on port 8000 (SSE Mode)"
+    echo ""
+    echo "Your NEW URL for ChatGPT (COPY THIS ENTIRE LINE):"
+    echo -e "\e[1;32m${TUNNEL_URL}/sse\e[0m"
+    echo ""
+    echo "IMPORTANT: The old link is no longer valid. You MUST update it in ChatGPT."
+    echo "In ChatGPT settings, use Authentication: None"
+fi
+
 echo ""
 echo "Management commands:"
-echo "  Status:  sudo systemctl status wordpress-mcp-server"
-echo "  Logs:    sudo journalctl -u wordpress-mcp-server -f"
-echo "  Restart: sudo systemctl restart wordpress-mcp-server"
+echo "  Status:  systemctl status wordpress-mcp"
+echo "  Logs:    journalctl -u wordpress-mcp -n 50 --no-pager"
+echo "  Restart: systemctl restart wordpress-mcp"
+echo "=========================================="
+
 echo ""
-echo "==================================="
+echo "DEBUG - Fresh Server Logs (Checking Patch Status):"
+journalctl -u wordpress-mcp -n 20 --no-pager | grep "patch" || echo "Note: Patch message not found in first 20 lines, check logs manually."
+
 
