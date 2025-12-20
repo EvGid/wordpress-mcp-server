@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.1 (High-Res Diagnostic Mode)"
-echo "This version adds a request logger and manual SSE control for debugging timeouts."
+echo "Version: 1.1.2 (Robust SSE Edition)"
+echo "This version uses official FastMCP sse_app() and Cloudflare optimizations."
 echo ""
 
 
