@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.5 (SSE Padding Edition)"
-echo "This version adds 2KB stream padding to resolve Cloudflare timeouts."
+echo "Version: 1.1.6 (Turbo Stream Edition)"
+echo "This version re-enables cloudflared chunking and uses 4KB padding."
 echo ""
 
 
@@ -99,8 +99,8 @@ sleep 2
 # Clear old logs to ensure we get exactly the fresh URL
 > /root/cloudflared.log
 
-# Run cloudflared. --no-chunked-encoding helps with some proxy issues.
-nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-chunked-encoding > /root/cloudflared.log 2>&1 &
+# Run cloudflared.
+nohup cloudflared tunnel --url http://127.0.0.1:8000 > /root/cloudflared.log 2>&1 &
 
 echo "Waiting for Cloudflare Tunnel to generate a new URL (up to 30s)..."
 TUNNEL_URL=""

@@ -53,8 +53,9 @@ try:
                     # Add Cloudflare optimizations for SSE
                     if path == "/sse":
                         headers = list(message.get("headers", []))
-                        headers.append((b"cache-control", b"no-cache, no-transform"))
+                        headers.append((b"cache-control", b"no-cache, no-transform, no-store, must-revalidate"))
                         headers.append((b"x-accel-buffering", b"no"))
+                        headers.append((b"x-content-type-options", b"nosniff"))
                         headers.append((b"connection", b"keep-alive"))
                         # Filter out content-length for streaming
                         headers = [h for h in headers if h[0].lower() != b"content-length"]
@@ -63,14 +64,15 @@ try:
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
-                # SSE Padding Trick: Send 2KB of whitespace to force proxies to flush
+                # SSE Padding Trick: Send 4KB of whitespace at the START to force proxies to flush
                 if message["type"] == "http.response.body" and path == "/sse":
                     # We only pad the VERY FIRST chunk of the body
                     if not hasattr(asgi_app, "_padded"):
-                        padding = b":" + b" " * 2048 + b"\n\n"
+                        # Use 4KB to be absolutely sure we exceed all proxy buffers
+                        padding = b":" + b" " * 4096 + b"\n\n"
                         message["body"] = padding + message.get("body", b"")
                         asgi_app._padded = True
-                        print("DEBUG: Sent 2KB padding to SSE stream", file=sys.stderr)
+                        print("DEBUG: Sent 4KB padding to SSE stream", file=sys.stderr)
 
                 await send(message)
 
