@@ -25,11 +25,14 @@ cd /opt/wordpress-mcp-server
 # Step 4: Clone repository
 echo "Step 4: Cloning repository from GitHub..."
 if [ -d ".git" ]; then
-    echo "Repository already exists, pulling latest changes..."
-    git pull origin main
+    echo "Repository already exists, forcing update to latest version..."
+    git fetch origin main
+    git reset --hard origin/main
+    git clean -fd
 else
     git clone https://github.com/EvGid/wordpress-mcp-server.git .
 fi
+
 
 # Step 5: Navigate to My_MCP
 echo "Step 5: Setting up My_MCP..."
