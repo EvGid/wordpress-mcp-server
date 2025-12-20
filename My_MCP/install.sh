@@ -96,9 +96,13 @@ fi
 
 # Step 13: Start Cloudflare Tunnel
 echo "Step 13: Starting Cloudflare Tunnel..."
+# Kill any existing cloudflared to avoid port conflicts
 pkill cloudflared || true
-nohup cloudflared tunnel --url http://localhost:8000 > /root/cloudflared.log 2>&1 &
+sleep 2
+# Run with --http-header to help identify requests and force http1.1 to avoid 421 Misdirected Request
+nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-chunked-encoding > /root/cloudflared.log 2>&1 &
 sleep 5
+
 
 # Step 14: Get HTTPS URL
 echo ""

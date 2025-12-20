@@ -673,6 +673,8 @@ async def cleanup():
 
 if __name__ == "__main__":
     import sys
+    import uvicorn
+    import asyncio
     
     # Determine transport based on arguments or default to stdio
     transport = "stdio"
@@ -684,7 +686,45 @@ if __name__ == "__main__":
     
     logger.info(f"Starting WordPress MCP Server with {transport} transport")
     
-    try:
-        mcp.run(transport=transport)
-    finally:
-        asyncio.run(cleanup())
+    if transport == "sse":
+        try:
+            from fastapi import FastAPI, Request
+            from starlette.middleware.cors import CORSMiddleware
+            
+            # Get the underlying FastAPI app from FastMCP
+            app = mcp.get_fastapi_app()
+            
+            # Add CORS just in case it helps with some clients
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=["*"],
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+            
+            @app.middleware("http")
+            async def debug_middleware(request: Request, call_next):
+                logger.info(f"SSE Request: {request.method} {request.url.path}")
+                logger.info(f"Headers: {dict(request.headers)}")
+                try:
+                    response = await call_next(request)
+                    logger.info(f"Response status: {response.status_code}")
+                    return response
+                except Exception as e:
+                    logger.error(f"Error handling request: {str(e)}", exc_info=True)
+                    raise
+            
+            # Use uvicorn to run the app on all interfaces
+            logger.info("Running uvicorn on 0.0.0.0:8000")
+            uvicorn.run(app, host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
+        except Exception as e:
+            logger.error(f"Failed to start SSE server: {e}", exc_info=True)
+            sys.exit(1)
+    else:
+        try:
+            mcp.run(transport=transport)
+        finally:
+            if transport == "stdio":
+                # Only run cleanup in stdio mode here, others use uvicorn lifecycle or handle differently
+                asyncio.run(cleanup())
+
