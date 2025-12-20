@@ -25,24 +25,10 @@ try:
         ts.TransportSecurityMiddleware.validate_request = mock_validate
         print("DEBUG: Successfully patched TransportSecurityMiddleware.validate_request", file=sys.stderr)
 
-    # 2. Patch SseServerTransport.connect_sse (The Entrance)
-    if hasattr(mcp_sse, "SseServerTransport"):
-        original_connect = mcp_sse.SseServerTransport.connect_sse
-        from contextlib import asynccontextmanager
-        
-        @asynccontextmanager
-        async def patched_connect(self, scope, receive, send):
-            print(f"DEBUG: SSE Connection attempt started for {scope.get('path')}", file=sys.stderr)
-            try:
-                async with original_connect(self, scope, receive, send) as streams:
-                    print(f"DEBUG: SSE Stream established successfully", file=sys.stderr)
-                    yield streams
-            except Exception as e:
-                print(f"DEBUG: SSE Stream failed: {e}", file=sys.stderr)
-                raise
-        
-        mcp_sse.SseServerTransport.connect_sse = patched_connect
-        print("DEBUG: Successfully patched SseServerTransport.connect_sse for logging", file=sys.stderr)
+    # 2. Patch SseServerTransport.connect_sse (The Entrance) - This section is now handled by mcp.sse_app()
+    #    The original patching logic for SseServerTransport.connect_sse is removed
+    #    as mcp.sse_app() provides a more robust integration.
+    #    The CloudflareOptimizationMiddleware and RequestDiagnosticMiddleware will be applied directly to the sse_app.
 
     # 3. Disable DNS rebinding in Settings
     if hasattr(ts, "TransportSecuritySettings"):
@@ -52,7 +38,6 @@ try:
             pass
 
     # 4. Global Request Logger Middleware (The Detective)
-    # We will inject this into the FastMCP app before it runs
     from starlette.middleware.base import BaseHTTPMiddleware
     class RequestDiagnosticMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -64,6 +49,18 @@ try:
             except Exception as e:
                 print(f"!!! Error handling {request.url.path}: {e}", file=sys.stderr)
                 raise
+
+    # 5. Cloudflare & Proxy Optimization Middleware
+    class CloudflareOptimizationMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path == "/sse":
+                response.headers["Cache-Control"] = "no-cache, no-transform"
+                response.headers["X-Accel-Buffering"] = "no"
+                response.headers["Connection"] = "keep-alive"
+                if "content-length" in response.headers:
+                    del response.headers["content-length"]
+            return response
 
     sys.modules['mcp.server.transport_security'] = ts
     sys.modules['mcp.server.sse'] = mcp_sse
@@ -760,56 +757,20 @@ if __name__ == "__main__":
     
     try:
         if transport == "sse":
-            from mcp.server.sse import SseServerTransport
-            from starlette.applications import Starlette
-            from starlette.routing import Route, Mount
-            from starlette.responses import Response
             import uvicorn
 
-            # Initialize transport
-            sse_transport = SseServerTransport("/messages/")
-            
-            # Define explicit SSE handler for debugging
-            async def handle_sse(request):
-                print(f"DEBUG: Handling GET /sse from {request.client}", file=sys.stderr)
-                try:
-                    async with sse_transport.connect_sse(
-                        request.scope, request.receive, request._send
-                    ) as streams:
-                        print("DEBUG: SSE Stream established, starting MCP loop...", file=sys.stderr)
-                        
-                        # Dynamically find the correct run method
-                        opts = mcp.create_initialization_options()
-                        if hasattr(mcp, "run_async"):
-                            await mcp.run_async(streams[0], streams[1], opts)
-                        elif hasattr(mcp, "_server") and hasattr(mcp._server, "run"):
-                            await mcp._server.run(streams[0], streams[1], opts)
-                        else:
-                            # Standard run might be a coroutine in some contexts
-                            res = mcp.run(streams[0], streams[1], opts)
-                            if asyncio.iscoroutine(res):
-                                await res
-                                
-                    print("DEBUG: SSE Connection closed normally", file=sys.stderr)
-                except Exception as e:
-                    print(f"DEBUG: Error in SSE handler: {e}", file=sys.stderr)
-                    # Re-raise to let starlette handle it or log it
-                    raise
-                return Response()
-
-            # Create Starlette app
-            app = Starlette(
-                routes=[
-                    Route("/sse", endpoint=handle_sse, methods=["GET"]),
-                    Mount("/messages/", app=sse_transport.handle_post_message),
-                ]
-            )
+            # Use the official sse_app() from FastMCP
+            # This is more robust than manual transport management
+            app = mcp.sse_app()
             
             # Add our status-tracking diagnostic middleware
             app.add_middleware(RequestDiagnosticMiddleware)
+            # Add Cloudflare optimizations
+            app.add_middleware(CloudflareOptimizationMiddleware)
             
-            logger.info("Starting manual Starlette server for SSE transport on 127.0.0.1:8000")
-            uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+            logger.info("Starting FastMCP SSE server on 0.0.0.0:8000")
+            print("DEBUG: Server listening on 0.0.0.0:8000 for SSE transport", file=sys.stderr)
+            uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
         else:
             mcp.run(transport=transport)
 
