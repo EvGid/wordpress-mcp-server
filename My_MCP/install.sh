@@ -7,9 +7,10 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.0.5 (Debug & Stability Mode)"
-echo "Enabling detailed logging and improved tunnel configuration."
+echo "Version: 1.0.6 (Auto-URL Detection Mode)"
+echo "This version automatically finds your new tunnel link."
 echo ""
+
 
 
 # Step 1: Update system
@@ -100,28 +101,50 @@ echo "Step 13: Starting Cloudflare Tunnel..."
 # Kill any existing cloudflared to avoid port conflicts
 pkill cloudflared || true
 sleep 2
-# Run with --http-header to help identify requests and force http1.1 to avoid 421 Misdirected Request
-nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-chunked-encoding > /root/cloudflared.log 2>&1 &
-sleep 5
 
+# Clear old logs to ensure we get exactly the fresh URL
+> /root/cloudflared.log
+
+# Run cloudflared. --no-chunked-encoding helps with some proxy issues.
+nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-chunked-encoding > /root/cloudflared.log 2>&1 &
+
+echo "Waiting for Cloudflare Tunnel to generate a new URL (up to 30s)..."
+TUNNEL_URL=""
+for i in {1..30}; do
+    # Use grep -oa because cloudflared logs sometimes contain binary/control characters
+    TUNNEL_URL=$(grep -oa 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | tail -n 1)
+    if [ ! -z "$TUNNEL_URL" ]; then
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+echo ""
 
 # Step 14: Get HTTPS URL
 echo ""
 echo "=========================================="
 echo "✅ INSTALLATION COMPLETE!"
 echo "=========================================="
-echo ""
-echo "MCP Server is running on port 8000 (SSE Mode)"
-echo ""
-echo "Your HTTPS URL for ChatGPT:"
-TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' /root/cloudflared.log | tail -n 1)
-echo "${TUNNEL_URL}/sse"
-echo ""
-echo "IMPORTANT: In ChatGPT, use the URL above (including /sse)"
+
+if [ -z "$TUNNEL_URL" ]; then
+    echo "❌ ERROR: Could not retrieve Tunnel URL."
+    echo "Check logs manually: cat /root/cloudflared.log"
+else
+    echo "MCP Server is running on port 8000 (SSE Mode)"
+    echo ""
+    echo "Your NEW URL for ChatGPT (COPY THIS ENTIRE LINE):"
+    echo -e "\e[1;32m${TUNNEL_URL}/sse\e[0m"
+    echo ""
+    echo "IMPORTANT: The old link is no longer valid. You MUST update it in ChatGPT."
+    echo "In ChatGPT settings, use Authentication: None"
+fi
+
 echo ""
 echo "Management commands:"
 echo "  Status:  systemctl status wordpress-mcp"
-echo "  Logs:    journalctl -u wordpress-mcp -f"
+echo "  Logs:    journalctl -u wordpress-mcp -n 50 --no-pager"
 echo "  Restart: systemctl restart wordpress-mcp"
 echo "=========================================="
+
 
