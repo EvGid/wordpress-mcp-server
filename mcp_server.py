@@ -48,6 +48,21 @@ try:
             path = scope.get("path", "")
             method = scope.get("method", "")
             
+            # Use a local flag to ensure padding is per-request (CRITICAL FIX FOR v1.1.7)
+            # This prevents a POST /sse probe from "stealing" the padding from the actual GET /sse
+            request_state = {"padded": False}
+
+            if path == "/sse" and method == "POST":
+                # Compatibility: return 200 OK for POST /sse probes (some clients do this)
+                await send({
+                    "type": "http.response.start", 
+                    "status": 200,
+                    "headers": [(b"content-length", b"2"), (b"content-type", b"text/plain")]
+                })
+                await send({"type": "http.response.body", "body": b"OK", "more_body": False})
+                print(f"DEBUG: Handled compatibility probe {method} {path}", file=sys.stderr)
+                return
+
             async def send_wrapper(message):
                 if message["type"] == "http.response.start":
                     # Add Cloudflare optimizations for SSE
@@ -57,30 +72,25 @@ try:
                         headers.append((b"x-accel-buffering", b"no"))
                         headers.append((b"x-content-type-options", b"nosniff"))
                         headers.append((b"connection", b"keep-alive"))
-                        # Filter out content-length for streaming
+                        # Force chunked encoding by removing content-length
                         headers = [h for h in headers if h[0].lower() != b"content-length"]
                         message["headers"] = headers
                     
                     status = message.get("status")
                     print(f"<-- {status} {path}", file=sys.stderr)
                 
-                # SSE Padding Trick: Send 4KB of whitespace at the START to force proxies to flush
-                if message["type"] == "http.response.body" and path == "/sse":
-                    # We only pad the VERY FIRST chunk of the body
-                    if not hasattr(asgi_app, "_padded"):
-                        # Use 4KB to be absolutely sure we exceed all proxy buffers
-                        padding = b":" + b" " * 4096 + b"\n\n"
-                        message["body"] = padding + message.get("body", b"")
-                        asgi_app._padded = True
-                        print("DEBUG: Sent 4KB padding to SSE stream", file=sys.stderr)
+                # SSE Padding: 8KB of whitespace at the START to force proxies to flush
+                if message["type"] == "http.response.body" and path == "/sse" and method == "GET":
+                    if not request_state["padded"]:
+                        # 8KB is the nuclear option for buffer flushing
+                        padding = b":" + b" " * 8192 + b"\n\n"
+                        message["body"] = padding + (message.get("body") or b"")
+                        request_state["padded"] = True
+                        print(f"DEBUG: Sent 8KB padding to {method} {path} stream", file=sys.stderr)
 
                 await send(message)
 
-            if "/messages/" in path:
-                print(f"--> {method} {path} (MCP Message Receipt)", file=sys.stderr)
-            else:
-                print(f"--> {method} {path}", file=sys.stderr)
-            
+            print(f"--> {method} {path}" + (" (MCP Message)" if "/messages/" in path else ""), file=sys.stderr)
             return await app(scope, receive, send_wrapper)
         return asgi_app
 

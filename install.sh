@@ -7,8 +7,8 @@ set -e  # Exit on error
 echo "=========================================="
 echo "WordPress MCP Server - Installation"
 echo "=========================================="
-echo "Version: 1.1.6 (Turbo Stream Edition)"
-echo "This version re-enables cloudflared chunking and uses 4KB padding."
+echo "Version: 1.1.7 (Compatibility Edition)"
+echo "This version fixes per-request padding and POST compatibility."
 echo ""
 
 
